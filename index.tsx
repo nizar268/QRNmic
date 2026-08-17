@@ -794,7 +794,7 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
                 onClick: () => setView('admin'),
                 title: 'Menu Pentadbir'
             }, 'MENU ADMIN'),
-            React.createElement('p', { className: 'copyright-footer' }, '© 2025 NizarSalleh@PKK')
+            React.createElement('p', { className: 'copyright-footer' }, '© 2026 NizarSalleh@PKK Ver.2')
         )
     );
 }

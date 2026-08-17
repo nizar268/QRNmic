@@ -5,32 +5,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { supabase, isSupabaseConfigured, SUPABASE_URL } from './supabaseClient';
 
 const editIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-4-4zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/></svg>`;
 const deleteIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2.5 1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1H3v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V4h.5a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H10a1 1 0 0 0-1-1H7a1 1 0 0 0-1-1H2.5zm3 4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM8 5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 1 1 0v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 1 0z"/></svg>`;
 
-// ===== Firebase Integration =====
-
-// Declare global variables from CDN scripts
-declare var firebase: any;
+// Declare global variable from CDN script
 declare var QRCodeStyling: any;
-
-// PENTING: Gantikan objek di bawah dengan konfigurasi Firebase anda sendiri
-const firebaseConfig = {
-  apiKey: "AIzaSyBTb9NQCJL2RzcKUeGyRenZsS9s75gO2xQ",
-  authDomain: "qnmic-6c6ef.firebaseapp.com",
-  projectId: "qnmic-6c6ef",
-  storageBucket: "qnmic-6c6ef.firebasestorage.app",
-  messagingSenderId: "848267325154",
-  appId: "1:848267325154:web:58e30154a13c4a2619b8bb"
-};
-
-// Initialize Firebase
-if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
-}
-const auth = firebase.auth();
-const db = firebase.firestore();
 
 // ===== Admin Email Whitelist (kecualikan daripada semakan allowlist) =====
 const ADMIN_EMAILS = ['m.nizar@umt.edu.my'];
@@ -43,7 +24,7 @@ interface QREntry {
     name: string;
     targetUrl: string;
     ownerId?: string;
-    createdAt?: any;
+    createdAt?: string;
 }
 
 const QR_CAPACITIES = {
@@ -108,26 +89,31 @@ function calculateQrMetadata(data: string, ecc: 'L' | 'M' | 'Q' | 'H'): QrMetada
 }
 
 // ===== Helper Functions =====
-function mapAuthCodeToMessage(code: string): string {
-    switch (code) {
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-            return 'E-mel atau kata laluan tidak sah.';
-        case 'auth/email-already-in-use':
-            return 'E-mel ini telah didaftarkan.';
-        case 'auth/weak-password':
-            return 'Kata laluan terlalu lemah. Sila gunakan sekurang-kurangnya 6 aksara.';
-        case 'auth/invalid-email':
-            return 'Format e-mel tidak sah.';
-        default:
-            return 'Berlaku ralat semasa pengesahan. Sila cuba lagi.';
+function mapSupabaseAuthError(message: string): string {
+    const lower = message.toLowerCase();
+    if (lower.includes('invalid login credentials') || lower.includes('invalid_grant')) {
+        return 'E-mel atau kata laluan tidak sah.';
     }
+    if (lower.includes('already registered') || lower.includes('user already exists')) {
+        return 'E-mel ini telah didaftarkan.';
+    }
+    if (lower.includes('password should be at least') || lower.includes('weak password')) {
+        return 'Kata laluan terlalu lemah. Sila gunakan sekurang-kurangnya 6 aksara.';
+    }
+    if (lower.includes('email not confirmed')) {
+        return 'Sila sahkan e-mel anda melalui pautan pengesahan yang dihantar.';
+    }
+    if (lower.includes('invalid email') || lower.includes('unable to validate email')) {
+        return 'Format e-mel tidak sah.';
+    }
+    return message || 'Berlaku ralat semasa pengesahan. Sila cuba lagi.';
 }
 
-function formatFirestoreTimestamp(timestamp: any): string {
-    if (!timestamp || typeof timestamp.toDate !== 'function') return '';
+function formatTimestamp(timestamp: any): string {
+    if (!timestamp) return '';
     try {
-        const date = timestamp.toDate();
+        const date = typeof timestamp === 'string' ? new Date(timestamp) : (typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp));
+        if (isNaN(date.getTime())) return '';
         const options: Intl.DateTimeFormatOptions = {
             day: '2-digit',
             month: '2-digit',
@@ -151,6 +137,7 @@ function AuthPage() {
     const [confirmPassword, setConfirmPassword] = React.useState('');
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [infoMessage, setInfoMessage] = React.useState<string | null>(null);
 
     const handleSubmit = async (e: any) => {
         e.preventDefault();
@@ -164,42 +151,66 @@ function AuthPage() {
         }
 
         setError(null);
+        setInfoMessage(null);
         setIsLoading(true);
 
         try {
             const emailToCheck = email.trim().toLowerCase();
 
-            // ===== FIX: KECUALIKAN AKAUN ADMIN DARIPADA ALLOWLIST =====
+            // ===== SEMAKAN SENARAI ALLOWLIST (Kecualikan akaun Admin) =====
             if (!isAdminEmail(emailToCheck)) {
                 try {
-                    const allowedEmailDoc = await db.collection('allowedEmails').doc(emailToCheck).get();
-                    if (!allowedEmailDoc.exists) {
+                    const { data: allowedEmailDoc, error: allowlistErr } = await supabase
+                        .from('allowed_emails')
+                        .select('email')
+                        .eq('email', emailToCheck)
+                        .maybeSingle();
+
+                    if (allowlistErr) {
+                        console.error("Error checking email allowlist:", allowlistErr);
+                        setError("Ralat sambungan: Semak sambungan Supabase anda.");
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    if (!allowedEmailDoc) {
                         if (isLogin) {
                             setError("Akaun anda telah disekat. Sila hubungi pentadbir.");
                         } else {
                             setError("E-mel ini tidak dibenarkan untuk mendaftar. Sila hubungi pentadbir.");
                         }
-                        return; // Early exit
+                        setIsLoading(false);
+                        return;
                     }
                 } catch (err: any) {
                     console.error("Error checking email allowlist:", err);
-                    if (err.code === 'permission-denied') {
-                        setError("Ralat konfigurasi: Tidak dapat mengesahkan e-mel. Semak Peraturan Keselamatan (Security Rules) pangkalan data anda.");
-                    } else {
-                        setError("Ralat pangkalan data semasa menyemak e-mel. Sila cuba sebentar lagi.");
-                    }
-                    return; // Early exit
+                    setError("Ralat pangkalan data semasa menyemak e-mel.");
+                    setIsLoading(false);
+                    return;
                 }
             }
 
-            // Jika semakan melepasi, teruskan auth
+            // Jika semakan melepasi, teruskan dengan Supabase Auth
             if (isLogin) {
-                await auth.signInWithEmailAndPassword(email, password);
+                const { error: loginError } = await supabase.auth.signInWithPassword({
+                    email: emailToCheck,
+                    password: password
+                });
+                if (loginError) throw loginError;
             } else {
-                await auth.createUserWithEmailAndPassword(email, password);
+                const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+                    email: emailToCheck,
+                    password: password
+                });
+                if (signUpError) throw signUpError;
+
+                if (signUpData?.user && !signUpData.session) {
+                    setInfoMessage("Pendaftaran berjaya! Sila semak peti masuk e-mel anda untuk mengesahkan akaun.");
+                }
             }
         } catch (err: any) {
-            setError(mapAuthCodeToMessage(err.code || ''));
+            console.error("Auth error:", err);
+            setError(mapSupabaseAuthError(err.message || ''));
         } finally {
             setIsLoading(false);
         }
@@ -208,6 +219,7 @@ function AuthPage() {
     const toggleMode = () => {
         setIsLogin(!isLogin);
         setError(null);
+        setInfoMessage(null);
         setPassword('');
         setConfirmPassword('');
     };
@@ -219,6 +231,7 @@ function AuthPage() {
             React.createElement('p', { className: 'auth-subtitle' }, isLogin ? 'Selamat kembali! Sila log masuk ke akaun anda.' : 'Cipta akaun untuk mula menyimpan Kod QR anda.'),
             React.createElement('form', { className: 'auth-form', onSubmit: handleSubmit },
                 error && React.createElement('p', { className: 'error-text auth-error' }, error),
+                infoMessage && React.createElement('p', { className: 'info-text', style: { color: '#00d26a', marginBottom: '1rem', fontSize: '0.9rem' } }, infoMessage),
                 React.createElement('div', { className: 'form-group' },
                     React.createElement('label', { htmlFor: 'email' }, 'E-mel:'),
                     React.createElement('input', { type: 'email', id: 'email', value: email, placeholder: 'anda@contoh.com', onChange: (e: any) => setEmail((e.target as HTMLInputElement).value), required: true })
@@ -231,7 +244,7 @@ function AuthPage() {
                     React.createElement('label', { htmlFor: 'confirm-password' }, 'Sahkan Kata Laluan:'),
                     React.createElement('input', { type: 'password', id: 'confirm-password', value: confirmPassword, placeholder: '••••••••', onChange: (e: any) => setConfirmPassword((e.target as HTMLInputElement).value), required: true })
                 ),
-                React.createElement('button', { type: 'submit', className: 'button primary auth-button', disabled: isLoading }, isLoading ? 'Memproses...' : (isLogin ? 'Log Masuk' : 'Daftar')),
+                React.createElement('button', { type: 'submit', className: 'button primary auth-button', disabled: isLoading }, isLoading ? 'MEMPROSES...' : (isLogin ? 'LOG MASUK' : 'DAFTAR')),
                 React.createElement('button', { type: 'button', className: 'button-link', onClick: toggleMode },
                     isLogin ? 'Tiada akaun? Daftar di sini.' : 'Sudah ada akaun? Log masuk.'
                 )
@@ -275,35 +288,32 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     const [error, setError] = React.useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-    const allowedEmailsCollectionRef = db.collection('allowedEmails');
-    const currentUser = auth.currentUser;
+    const fetchAllowedEmails = async () => {
+        setIsLoading(true);
+        try {
+            const { data, error: fetchErr } = await supabase
+                .from('allowed_emails')
+                .select('email')
+                .order('email', { ascending: true });
 
-    const handleFirestoreError = (err: any, operation: 'memuatkan' | 'menambah' | 'memadam'): string => {
-        console.error(`Error ${operation} data e-mel: `, err);
-        if (err.code === 'permission-denied') {
-            const adminEmail = currentUser?.email || 'akaun admin anda';
-            return `Operasi gagal: Kebenaran ditolak.\nSila pastikan Peraturan Keselamatan (Security Rules) Firebase anda membenarkan ${adminEmail} untuk membaca dan menulis ke koleksi 'allowedEmails'.`;
+            if (fetchErr) throw fetchErr;
+
+            const list = (data || []).map((item: any) => ({
+                id: item.email,
+                email: item.email
+            }));
+            setAllowedEmails(list);
+            setError(null);
+        } catch (err: any) {
+            console.error("Error fetching allowed emails:", err);
+            setError(`Gagal memuatkan senarai e-mel: ${err.message || 'Sila semak kebenaran RLS Supabase anda.'}`);
+        } finally {
+            setIsLoading(false);
         }
-        return `Gagal ${operation} e-mel. Sila semak sambungan internet anda atau cuba lagi.`;
     };
 
     React.useEffect(() => {
-        setIsLoading(true);
-        const unsubscribe = allowedEmailsCollectionRef.onSnapshot(
-            (querySnapshot: any) => {
-                const emails = querySnapshot.docs.map((doc: any) => ({
-                    id: doc.id,
-                    email: doc.data().email,
-                })).sort((a:any, b:any) => a.email.localeCompare(b.email));
-                setAllowedEmails(emails);
-                setIsLoading(false);
-            },
-            (err: any) => {
-                setError(handleFirestoreError(err, 'memuatkan'));
-                setIsLoading(false);
-            }
-        );
-        return () => unsubscribe();
+        fetchAllowedEmails();
     }, []);
 
     const handleAddEmail = async (e: any) => {
@@ -325,23 +335,38 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         setError(null);
         setIsSubmitting(true);
         try {
-            await allowedEmailsCollectionRef.doc(emailToAdd).set({ email: emailToAdd });
+            const { error: insertErr } = await supabase
+                .from('allowed_emails')
+                .insert({ email: emailToAdd });
+
+            if (insertErr) throw insertErr;
+
             setNewEmail('');
-        } catch (err) {
-            setError(handleFirestoreError(err, 'menambah'));
+            await fetchAllowedEmails();
+        } catch (err: any) {
+            console.error("Error adding email:", err);
+            setError(`Gagal menambah e-mel: ${err.message || 'Sila semak kebenaran RLS Supabase.'}`);
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const handleDeleteEmail = async (idToDelete: string) => {
+    const handleDeleteEmail = async (emailToDelete: string) => {
         if (confirm("Adakah anda pasti mahu memadam e-mel ini daripada senarai yang dibenarkan? Pengguna sedia ada dengan e-mel ini akan disekat daripada log masuk.")) {
             setError(null);
             setIsSubmitting(true);
             try {
-                await allowedEmailsCollectionRef.doc(idToDelete).delete();
-            } catch (err) {
-                setError(handleFirestoreError(err, 'memadam'));
+                const { error: delErr } = await supabase
+                    .from('allowed_emails')
+                    .delete()
+                    .eq('email', emailToDelete);
+
+                if (delErr) throw delErr;
+
+                await fetchAllowedEmails();
+            } catch (err: any) {
+                console.error("Error deleting email:", err);
+                setError(`Gagal memadam e-mel: ${err.message || 'Sila semak kebenaran RLS Supabase.'}`);
             } finally {
                 setIsSubmitting(false);
             }
@@ -351,7 +376,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     return React.createElement('div', { className: 'admin-container' },
         React.createElement('div', { className: 'admin-pane' },
             React.createElement('div', { className: 'admin-header' },
-                React.createElement('h2', {}, 'Kawalan E-mel Pendaftaran'),
+                React.createElement('h2', {}, 'Kawalan E-mel Pendaftaran (Supabase)'),
                 React.createElement('button', { className: 'button', onClick: onBack, title: 'Kembali ke Aplikasi Utama' }, 'Kembali')
             ),
             React.createElement('p', { className: 'admin-subtitle' }, 'Urus senarai e-mel yang dibenarkan untuk mendaftar dan menggunakan aplikasi ini.'),
@@ -410,7 +435,6 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
     const [error, setError] = React.useState<string | null>(null);
 
     const currentAppUrlRef = React.useRef<string>('');
-    const qrsCollectionRef = db.collection('qrs');
 
     const constructQrData = (id: string) => `${currentAppUrlRef.current}#qrId=${id}`;
 
@@ -426,49 +450,70 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
     };
 
     React.useEffect(() => {
-        let appUrl = window.location.href.split('#')[0];
-        if (!appUrl.endsWith('/')) {
-            appUrl = appUrl.substring(0, appUrl.lastIndexOf('/') + 1);
+        // Gunakan VITE_APP_URL (URL pengeluaran) supaya QR Code sentiasa menghala ke domain awam
+        const envUrl = (import.meta as any).env?.VITE_APP_URL;
+        if (envUrl) {
+            let prodUrl = envUrl.trim();
+            if (!prodUrl.endsWith('/')) prodUrl += '/';
+            currentAppUrlRef.current = prodUrl + 'index.html';
+        } else {
+            let appUrl = window.location.href.split('#')[0];
+            if (!appUrl.endsWith('/')) {
+                appUrl = appUrl.substring(0, appUrl.lastIndexOf('/') + 1);
+            }
+            appUrl += 'index.html';
+            currentAppUrlRef.current = appUrl;
         }
-        appUrl += 'index.html';
-        currentAppUrlRef.current = appUrl;
     }, []);
 
-    React.useEffect(() => {
+    const fetchQrs = async () => {
         if (!user) {
             setQrEntries([]);
             return;
         }
         setIsLoading(true);
-        const unsubscribe = qrsCollectionRef
-            .where('ownerId', '==', user.uid)
-            .onSnapshot(
-                (querySnapshot: any) => {
-                    if (querySnapshot) {
-                        const data = querySnapshot.docs.map((doc: any) => ({
-                            id: doc.id,
-                            ...doc.data(),
-                        })) as QREntry[];
-                        const sortedData = data.sort((a, b) => {
-                            const timeA = a.createdAt?.seconds ?? 0;
-                            const timeB = b.createdAt?.seconds ?? 0;
-                            return timeB - timeA;
-                        });
-                        setQrEntries(sortedData);
-                    } else {
-                        setQrEntries([]);
-                    }
-                    setIsLoading(false);
-                    setError(null);
-                },
-                (err: any) => {
-                    console.error("Error listening to documents: ", err);
-                    setError("Gagal mengambil data. Sila pastikan anda mempunyai sambungan internet.");
-                    setIsLoading(false);
-                    setQrEntries([]);
-                }
-            );
-        return () => unsubscribe();
+        try {
+            const userEmail = user.email?.toLowerCase() || '';
+
+            // Cari QR milik pengguna berdasarkan owner_id (baru) ATAU owner_email (migrasi Firebase)
+            const { data, error: fetchErr } = await supabase
+                .from('qrs')
+                .select('*')
+                .or(`owner_id.eq.${user.id},owner_email.eq.${userEmail}`)
+                .order('created_at', { ascending: false });
+
+            if (fetchErr) throw fetchErr;
+
+            // Auto-claim: Kemaskini owner_id bagi QR migrasi yang belum dikemaskini
+            const migratedQrs = (data || []).filter((row: any) => row.owner_id !== user.id && row.owner_email === userEmail);
+            if (migratedQrs.length > 0) {
+                const migratedIds = migratedQrs.map((row: any) => row.id);
+                await supabase
+                    .from('qrs')
+                    .update({ owner_id: user.id })
+                    .in('id', migratedIds);
+            }
+
+            const mappedList: QREntry[] = (data || []).map((row: any) => ({
+                id: row.id,
+                name: row.name,
+                targetUrl: row.target_url,
+                ownerId: user.id,
+                createdAt: row.created_at
+            }));
+
+            setQrEntries(mappedList);
+            setError(null);
+        } catch (err: any) {
+            console.error("Error fetching QRs:", err);
+            setError("Gagal mengambil data dari Supabase. Sila pastikan sambungan internet anda aktif.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    React.useEffect(() => {
+        fetchQrs();
     }, [user]);
 
     const displayQRCode = async (data: string) => {
@@ -540,27 +585,39 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
         setError(null);
         try {
             if (editingEntryId) {
-                const docRef = qrsCollectionRef.doc(editingEntryId);
-                const dataToUpdate = { name: qrName.trim(), targetUrl: correctedUrl };
-                await docRef.update(dataToUpdate);
+                const { error: updateErr } = await supabase
+                    .from('qrs')
+                    .update({
+                        name: qrName.trim(),
+                        target_url: correctedUrl
+                    })
+                    .eq('id', editingEntryId);
+
+                if (updateErr) throw updateErr;
+
                 displayQRCode(constructQrData(editingEntryId));
+                await fetchQrs();
             } else {
-                const entryData = {
-                    name: qrName.trim(),
-                    targetUrl: correctedUrl,
-                    ownerId: user.uid,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                const docRef = await qrsCollectionRef.add(entryData);
-                displayQRCode(constructQrData(docRef.id));
+                const { data: newQr, error: insertErr } = await supabase
+                    .from('qrs')
+                    .insert({
+                        name: qrName.trim(),
+                        target_url: correctedUrl,
+                        owner_id: user.id,
+                        owner_email: user.email?.toLowerCase() || ''
+                    })
+                    .select()
+                    .single();
+
+                if (insertErr) throw insertErr;
+
+                displayQRCode(constructQrData(newQr.id));
                 clearFormFieldsOnly();
+                await fetchQrs();
             }
         } catch (e: any) {
-            const permissionDenied = e.code === 'permission-denied';
-            setError(permissionDenied
-                ? 'Operasi gagal: Kebenaran ditolak. Sila semak Peraturan Keselamatan (Security Rules) pangkalan data anda.'
-                : 'Gagal menyimpan data ke Firestore.');
-            console.error(e);
+            console.error("Supabase Save Error:", e);
+            setError(`Gagal menyimpan data ke Supabase: ${e.message || 'Sila semak konfigurasi pangkalan data.'}`);
         } finally {
             setIsLoading(false);
         }
@@ -577,7 +634,13 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
         if (confirm("Adakah anda pasti mahu memadam Kod QR ini?")) {
             setError(null);
             try {
-                await qrsCollectionRef.doc(idToDelete).delete();
+                const { error: delErr } = await supabase
+                    .from('qrs')
+                    .delete()
+                    .eq('id', idToDelete);
+
+                if (delErr) throw delErr;
+
                 const entryBeingDeleted = qrEntries.find(e => e.id === idToDelete);
                 if (editingEntryId === idToDelete) {
                     clearFullFormAndDisplay();
@@ -586,9 +649,10 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
                 } else if (qrEntries.length === 1) {
                     clearQrDisplay();
                 }
+                await fetchQrs();
             } catch(e: any) {
-                setError('Gagal memadam data dari Firestore.');
-                console.error(e);
+                console.error("Delete Error:", e);
+                setError(`Gagal memadam data dari Supabase: ${e.message}`);
             }
         }
     };
@@ -596,7 +660,7 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
     const clearQrDisplay = () => {
         setGeneratedQrImageUrl(null);
         setQrDataThatGeneratedCurrentImage(null);
-    }
+    };
 
     const handleDownloadQRCode = () => {
         if (!qrDataThatGeneratedCurrentImage || !qrMetadata || qrMetadata.chosen_version === 0) {
@@ -712,7 +776,7 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
                                 React.createElement('div', { className: 'item-info' },
                                     React.createElement('strong', { id: `qr-name-${entry.id}` }, entry.name),
                                     React.createElement('span', {className: 'target-url-display'}, getHostnameFromUrl(entry.targetUrl)),
-                                    entry.createdAt && React.createElement('span', { className: 'timestamp-display' }, formatFirestoreTimestamp(entry.createdAt))
+                                    entry.createdAt && React.createElement('span', { className: 'timestamp-display' }, formatTimestamp(entry.createdAt))
                                 ),
                                 React.createElement('div', { className: 'item-actions' },
                                     React.createElement('button', { className: 'button icon-button edit-button', onClick: () => handleEdit(entry), title: `Sunting ${entry.name}`, dangerouslySetInnerHTML: { __html: editIconSvg } }),
@@ -724,30 +788,38 @@ function QrApp({ user, onLogout }: { user: any, onLogout: () => void }) {
             )
         ),
         React.createElement('div', { className: 'footer-section' },
-            React.createElement('button', { className: 'button', onClick: onLogout, title: 'Log Keluar' }, 'Log Keluar'),
+            React.createElement('button', { className: 'button footer-logout-btn', onClick: onLogout, title: 'Log Keluar' }, 'LOG KELUAR'),
             isAdminEmail(user.email) && React.createElement('button', {
-                className: 'button',
+                className: 'button footer-admin-btn',
                 onClick: () => setView('admin'),
                 title: 'Menu Pentadbir'
-            }, 'Menu Admin'),
+            }, 'MENU ADMIN'),
             React.createElement('p', { className: 'copyright-footer' }, '© 2025 NizarSalleh@PKK')
         )
     );
 }
 
 function App() {
-    // Initialize state directly from the auth object to be resilient to state wipes
-    const [user, setUser] = React.useState<any | null>(() => auth.currentUser);
-    const [authLoading, setAuthLoading] = React.useState(() => !auth.currentUser);
+    const [user, setUser] = React.useState<any | null>(null);
+    const [authLoading, setAuthLoading] = React.useState(true);
     const [redirectMessage, setRedirectMessage] = React.useState<string>('');
 
     React.useEffect(() => {
-        // Listen for auth state changes
-        const unsubscribe = auth.onAuthStateChanged((currentUser: any) => {
-            setUser(currentUser);
+        // Dapatkan sesi terkini dari Supabase
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
+            setAuthLoading(false);
+        }).catch(() => {
             setAuthLoading(false);
         });
-        return () => unsubscribe();
+
+        // Dengar sebarang perubahan status log masuk / keluar
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            setAuthLoading(false);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
     React.useEffect(() => {
@@ -756,47 +828,38 @@ function App() {
             if (hash.startsWith('#qrId=')) {
                 const idToRedirect = hash.substring('#qrId='.length);
                 
-                // Sanity check
                 if (!idToRedirect.trim()) {
                      setRedirectMessage('Pautan rosak: ID tidak dijumpai.');
                      return;
                 }
 
-                setRedirectMessage('Mencari URL...');
+                setRedirectMessage('Mencari URL sasaran...');
                 try {
-                    const docRef = db.collection('qrs').doc(idToRedirect);
-                    const docSnap = await docRef.get();
+                    const { data, error: qrErr } = await supabase
+                        .from('qrs')
+                        .select('target_url')
+                        .eq('id', idToRedirect)
+                        .maybeSingle();
 
-                    if (!docSnap.exists) {
+                    if (qrErr) throw qrErr;
+
+                    if (!data) {
                         setRedirectMessage('Kod QR tidak dijumpai. Ia mungkin telah dipadam.');
                         return;
                     }
 
-                    const entryToRedirect = docSnap.data() as Omit<QREntry, 'id'>;
-                    
-                    if (!entryToRedirect.targetUrl) {
+                    if (!data.target_url) {
                         setRedirectMessage('URL sasaran kosong.');
-                         return;
+                        return;
                     }
 
-                    setRedirectMessage(`Mengalihkan ke: ${entryToRedirect.targetUrl}...`);
+                    setRedirectMessage(`Mengalihkan ke: ${data.target_url}...`);
                     setTimeout(() => {
-                        window.location.href = entryToRedirect.targetUrl;
+                        window.location.href = data.target_url;
                     }, 1500);
                 } catch (e: any) {
-                    // Enhanced error handling for debugging
                     console.error("Redirect Error:", e);
-                    let friendlyError = 'Ralat tidak diketahui.';
-                    
-                    if (e.code === 'permission-denied') {
-                        friendlyError = 'Akses Ditolak: Peraturan keselamatan Firestore menghalang bacaan awam. Sila kemaskini "Firestore Security Rules".';
-                    } else if (e.code === 'unavailable') {
-                        friendlyError = 'Ralat Rangkaian: Sila semak sambungan internet anda.';
-                    } else {
-                        friendlyError = `Ralat: ${e.message || e.toString()}`;
-                    }
-
-                    setRedirectMessage(`Gagal mengalihkan. ${friendlyError}`);
+                    setRedirectMessage(`Gagal mengalihkan. ${e.message || 'Sila semak sambungan pangkalan data.'}`);
                 }
             }
         };
@@ -804,9 +867,26 @@ function App() {
         handleRedirect();
     }, []);
 
-    const handleLogout = () => {
-        auth.signOut();
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        setUser(null);
     };
+
+    if (!isSupabaseConfigured) {
+        return React.createElement('div', { className: 'container redirect-notice', style: { maxWidth: '600px' } },
+            React.createElement('h1', {}, ['Konfigurasi', React.createElement('br',{}), 'Supabase Diperlukan']),
+            React.createElement('div', { style: { background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', textAlign: 'left', lineHeight: '1.6' } },
+                React.createElement('p', { style: { color: '#ffbd2e', fontWeight: 'bold', marginBottom: '0.75rem' } }, '⚠️ Projek ini telah dipindahkan ke Supabase.'),
+                React.createElement('p', {}, 'Sila tetapkan pembolehubah persekitaran dalam fail ', React.createElement('code', { style: { color: '#00d26a' } }, '.env'), ':'),
+                React.createElement('pre', { style: { background: '#111', padding: '1rem', borderRadius: '8px', overflowX: 'auto', fontSize: '0.85rem' } },
+                    `VITE_SUPABASE_URL=https://your-project-id.supabase.co\nVITE_SUPABASE_ANON_KEY=your-anon-key-here`
+                ),
+                React.createElement('p', { style: { marginTop: '1rem', fontSize: '0.9rem', color: '#aaa' } },
+                    'Dan pastikan anda telah menjalankan skrip ', React.createElement('code', {}, 'supabase_schema.sql'), ' di SQL Editor Supabase.'
+                )
+            )
+        );
+    }
 
     if (redirectMessage) {
         return React.createElement('div', { className: 'container redirect-notice' },
@@ -826,8 +906,7 @@ function App() {
         return React.createElement(AuthPage, {});
     }
 
-    // Pass key to reset state when user changes
-    return React.createElement(QrApp, { user, onLogout: handleLogout, key: user.uid });
+    return React.createElement(QrApp, { user, onLogout: handleLogout, key: user.id });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

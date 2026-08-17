@@ -1,0 +1,5 @@
+{
+  "name": "Penjana Kod QR Dinamik",
+  "description": "Aplikasi untuk menjana, menyimpan, dan menyunting Kod QR dinamik. Imej Kod QR kekal sama walaupun URL sasaran dikemas kini.",
+  "requestFramePermissions": []
+}

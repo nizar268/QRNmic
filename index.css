@@ -46,6 +46,20 @@ body {
     min-height: 100vh;
 }
 
+/* --- macOS Titlebar Drag Region --- */
+.titlebar-drag-region {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
+    -webkit-app-region: drag;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 9999;
+    pointer-events: auto;
+}
+
 #app {
     display: flex;
     flex-direction: column;
@@ -53,7 +67,7 @@ body {
     justify-content: center;
     min-height: 100vh;
     width: 100%;
-    padding: 30px 20px;
+    padding: 35px 20px 30px 20px;
 }
 
 .container {
@@ -64,7 +78,7 @@ body {
     background-color: transparent;
 }
 
-/* --- Header Typography --- */
+/* --- Header Typography (Draggable) --- */
 h1 {
     font-family: 'Oswald', sans-serif;
     text-align: center;
@@ -76,6 +90,28 @@ h1 {
     margin: 0 0 35px 0;
     color: var(--orange-primary);
     text-shadow: 0 2px 15px rgba(255, 110, 0, 0.2);
+    -webkit-app-region: drag;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Ensure all interactive elements remain clickable and non-draggable */
+button,
+input,
+a,
+select,
+textarea,
+.button,
+.icon-button,
+.style-option,
+.editor-pane,
+.saved-pane,
+.auth-box,
+.admin-pane,
+.saved-qr-list,
+.saved-qr-item,
+.qrcode-display {
+    -webkit-app-region: no-drag;
 }
 
 h1.admin-title {

@@ -1,12 +1,21 @@
 {
   "name": "penjana-kod-qr-dinamik",
+  "productName": "Penjana Kod QR Dinamik",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
+  "author": "NizarSalleh@PKK",
+  "description": "Aplikasi Penjana Kod QR Dinamik Bersepadu",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "electron . --dev",
+    "dist:mac": "vite build && electron-builder --mac --x64 --arm64",
+    "dist:x64": "vite build && electron-builder --mac --x64",
+    "dist:arm64": "vite build && electron-builder --mac --arm64",
+    "dist:universal": "vite build && electron-builder --mac --universal"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
@@ -16,7 +25,58 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "my.edu.umt.penjanakodqrdinamik",
+    "productName": "Penjana Kod QR Dinamik",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "icon": "build/icon.icns",
+      "title": "Penjana Kod QR Dinamik",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   }
 }

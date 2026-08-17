@@ -1,0 +1,8 @@
+release
+build
+dist
+.git
+.vscode
+*.dmg
+*.zip
+*.blockmap
